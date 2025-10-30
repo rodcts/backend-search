@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  # 1. A API Python/FastAPI
+  api:
+    build: . # Constrói a partir do podmanfile na pasta atual
+    container_name: avaliador-api
+    ports:
+      - "9001:9001" # Mapeia a porta do seu PC para a porta do container
+    environment:
+      # Passa as variáveis de ambiente para o config.py
+      - REDIS_HOST=redis_cache
+      - MONGO_URI=mongodb://mongodb_db:27017/avaliador
+    depends_on:
+      - redis_cache
+      - mongodb_db
+    networks:
+      - avaliador-net
+
+  # 2. O Banco de Dados Cache
+  redis_cache:
+    image: "redis:7-alpine"
+    container_name: redis_cache
+    networks:
+      - avaliador-net
+
+  # 3. O Banco de Dados Analítico
+  mongodb_db:
+    image: "mongo:latest"
+    container_name: mongodb_db
+    ports:
+      - "27017:27017" # Opcional: expor o Mongo para seu PC
+    networks:
+      - avaliador-net
+
+networks:
+  avaliador-net:
+    driver: bridge

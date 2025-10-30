@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+gunicorn
+redis
+pymongo
+httpx
+beautifulsoup4
+pandas
