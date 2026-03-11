@@ -53,38 +53,63 @@ async def _scrape_mercado_livre(
         f"[Scraper] Buscando Mercado Livre para: {product_name} (Estado: {estado})"
     )
 
-    try:
-        response = await client.get(url, headers=HEADERS, follow_redirects=True)
-        response.raise_for_status()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = await client.get(url, headers=HEADERS, follow_redirects=True)
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        seletor_preco = "span.andes-money-amount__fraction"
-        price_elements = soup.select(seletor_preco)
+            # Tratamento de Backoff Exponencial para Rate Limit (429)
+            if response.status_code == 429:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** (attempt + 1)  # 2s, 4s, 8s...
+                    log.warning(
+                        f"[Scraper] Erro 429 (Rate Limit) no ML. Tentativa {attempt + 1}/{max_retries}. "
+                        f"Aguardando {wait_time}s para redefinir..."
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    log.error(
+                        "[Scraper] Limite de tentativas atingido para erro 429 no Mercado Livre."
+                    )
+                    return {"site": "mercadolivre", "error": "rate_limited_exhausted"}
 
-        if not price_elements:
-            log.warning(
-                f"[Scraper] Nenhum preço encontrado no ML para: {product_name} (Estado: {estado})"
-            )
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, "html.parser")
+            seletor_preco = "span.andes-money-amount__fraction"
+            price_elements = soup.select(seletor_preco)
+
+            if not price_elements:
+                log.warning(
+                    f"[Scraper] Nenhum preço encontrado no ML para: {product_name} (Estado: {estado})"
+                )
+                return None
+
+            prices = []
+            for p in price_elements[:5]:  # Pega os 5 primeiros
+                valor_texto = p.text.replace(".", "").replace(",", "").strip()
+                if valor_texto.isdigit():
+                    prices.append(float(valor_texto))
+
+            if prices:
+                log.info(f"[Scraper] ML OK. {len(prices)} preços encontrados.")
+                return {"site": "mercadolivre", "prices": prices}
+
             return None
 
-        prices = []
-        for p in price_elements[:5]:  # Pega os 5 primeiros
-            valor_texto = p.text.replace(".", "").replace(",", "").strip()
-            if valor_texto.isdigit():
-                prices.append(float(valor_texto))
-
-        if prices:
-            # O scraper agora só retorna os preços brutos.
-            # A lógica de estatística foi movida para o price_service.
-            log.info(f"[Scraper] ML OK. {len(prices)} preços encontrados.")
-            return {"site": "mercadolivre", "prices": prices}
-
-    except Exception as e:
-        log.error(
-            f"[Scraper] Falha CRÍTICA ao raspar ML para {product_name} (Estado: {estado})",
-            exc_info=True,
-        )
-        return {"site": "mercadolivre", "error": f"failed_to_scrape: {e}"}
+        except httpx.HTTPStatusError as e:
+            log.error(f"[Scraper] Erro HTTP {e.response.status_code} ao acessar ML")
+            return {
+                "site": "mercadolivre",
+                "error": f"http_status_{e.response.status_code}",
+            }
+        except Exception as e:
+            log.error(
+                f"[Scraper] Falha inesperada ao raspar ML para {product_name}",
+                exc_info=True,
+            )
+            return {"site": "mercadolivre", "error": f"critical_failure: {e}"}
 
     return None
 

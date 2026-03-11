@@ -2,7 +2,7 @@ fastapi
 uvicorn
 gunicorn
 redis
-pymongo
+motor
 httpx
 beautifulsoup4
 pandas
